@@ -121,6 +121,27 @@ video_widget_unrealize_cb (GtkWidget * widget, gpointer data)
 }
 
 static gboolean
+app_window_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
+{
+  struct AppData *d = data;
+  GdkEventConfigure *cfg_event = (GdkEventConfigure *) event;
+
+  if (!d->video_window_handle)
+    return FALSE;
+
+  g_print ("app_configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
+        cfg_event->y, cfg_event->width, cfg_event->height);
+
+  if (!d->video_frozen) {
+    d->video_frozen = TRUE;
+    gst_wayland_video_pause_rendering (GST_WAYLAND_VIDEO (d->sink));
+    wl_subsurface_set_sync (d->subsurface);
+  }
+
+  return FALSE;
+}
+
+static gboolean
 video_widget_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
 {
   struct AppData *d = data;
@@ -129,14 +150,10 @@ video_widget_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
   if (!d->video_window_handle)
     return FALSE;
 
+  g_print ("configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
+      cfg_event->y, cfg_event->width, cfg_event->height);
+
   if (cfg_event->x != 0 || cfg_event->y != 0) {
-    g_print ("configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
-        cfg_event->y, cfg_event->width, cfg_event->height);
-
-    gst_wayland_video_pause_rendering (GST_WAYLAND_VIDEO (d->sink));
-    d->video_frozen = TRUE;
-
-    wl_subsurface_set_sync (d->subsurface);
     wl_subsurface_set_position (d->subsurface, cfg_event->x,
         cfg_event->y);
     gst_wayland_video_set_surface_size (GST_WAYLAND_VIDEO (d->sink),
@@ -183,6 +200,8 @@ main (int argc, char **argv)
   gtk_window_set_title (GTK_WINDOW (data.app_window), "GStreamer Wayland Demo");
   g_signal_connect (data.app_window, "destroy",
       G_CALLBACK (gtk_main_quit), NULL);
+  g_signal_connect (data.app_window, "configure-event",
+      G_CALLBACK (app_window_configure_cb), &data);
 
   data.video_window = gtk_drawing_area_new ();
   g_signal_connect (data.video_window, "realize",
