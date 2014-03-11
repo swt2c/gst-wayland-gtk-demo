@@ -230,7 +230,7 @@ main (int argc, char **argv)
   // we should have the handle now
   g_assert (data.video_window_handle != 0);
 
-  data.pipeline = gst_parse_launch ("videotestsrc ! waylandsink name=sink", NULL);
+  data.pipeline = gst_parse_launch ("videotestsrc pattern=18 ! waylandsink name=sink", NULL);
   data.sink = gst_bin_get_by_name (GST_BIN (data.pipeline), "sink");
 
   // set up sync handler for setting the xid once the pipeline is started
