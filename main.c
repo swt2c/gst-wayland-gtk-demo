@@ -246,7 +246,6 @@ main (int argc, char **argv)
 
   gst_object_unref (data.sink);
   gst_object_unref (data.pipeline);
-  g_object_unref (data.app_window);
 
   return 0;
 }
