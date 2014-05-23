@@ -20,6 +20,7 @@
 #include <gst/wayland/wayland.h>
 #include <gtk/gtk.h>
 #include <gdk/gdkwayland.h>
+#include <cairo/cairo.h>
 
 struct AppData {
   GtkWidget *video_window;
@@ -28,44 +29,8 @@ struct AppData {
   GstElement *sink;
   struct wl_display *display_handle;
   struct wl_surface *window_handle;
-  guint width, height;
-  struct wl_subcompositor *subcompositor;
-  struct wl_subsurface *subsurface;
-  gboolean video_frozen;
+  GtkAllocation video_widget_allocation;
 };
-
-static void
-registry_handle_global (void *data, struct wl_registry *registry,
-    uint32_t id, const char *interface, uint32_t version)
-{
-  struct wl_subcompositor ** wlsubcompositor = data;
-
-  if (g_strcmp0 (interface, "wl_subcompositor") == 0) {
-    *wlsubcompositor =
-        wl_registry_bind (registry, id, &wl_subcompositor_interface, 1);
-  }
-}
-
-static const struct wl_registry_listener registry_listener = {
-  registry_handle_global,
-  NULL
-};
-
-static struct wl_subcompositor *
-wayland_find_subcompositor (GdkDisplay *display)
-{
-  struct wl_display *wldisplay;
-  struct wl_registry *wlregistry;
-  struct wl_subcompositor *wlsubcompositor = NULL;
-
-  wldisplay = gdk_wayland_display_get_wl_display (display);
-  wlregistry = wl_display_get_registry (wldisplay);
-  wl_registry_add_listener (wlregistry, &registry_listener, &wlsubcompositor);
-  wl_display_roundtrip (wldisplay);
-  wl_registry_destroy (wlregistry);
-
-  return wlsubcompositor;
-}
 
 static GstBusSyncReply
 bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
@@ -90,8 +55,9 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
       // GST_MESSAGE_SRC (message) will be the video sink element
       overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
       gst_video_overlay_set_window_handle (overlay, (guintptr) d->window_handle);
-      gst_wayland_video_set_surface_size (GST_WAYLAND_VIDEO (overlay),
-          d->width, d->height);
+      gst_video_overlay_set_render_rectangle (GST_VIDEO_OVERLAY (d->sink),
+          d->video_widget_allocation.x, d->video_widget_allocation.y,
+          d->video_widget_allocation.width, d->video_widget_allocation.height);
     } else {
       g_warning ("Should have obtained window_handle by now!\n");
     }
@@ -109,105 +75,40 @@ video_widget_realize_cb (GtkWidget * widget, gpointer data)
   struct AppData *d = data;
   GdkDisplay *display;
   GdkWindow *window;
-  struct wl_surface *parent_surface;
-  struct wl_surface *surface;
-  gdouble x, y;
 
   display = gtk_widget_get_display (widget);
   window = gtk_widget_get_window (widget);
 
-  gdk_window_coords_to_parent (window, 0.0, 0.0, &x, &y);
-
-  parent_surface = gdk_wayland_window_get_wl_surface (window);
-  gdk_window_ensure_native (window);
-  gdk_wayland_window_set_use_custom_surface (window);
-  surface = gdk_wayland_window_get_wl_surface (window);
-
-  g_print ("realize: parent_surface: %p, surface %p, x %d, y %d\n",
-      parent_surface, surface, (int) x, (int) y);
-
-  d->subsurface = wl_subcompositor_get_subsurface (d->subcompositor, surface,
-      parent_surface);
-  wl_subsurface_set_position (d->subsurface, x, y);
-  wl_subsurface_set_desync (d->subsurface);
-
+  /* Note that the surface passed to waylandsink here is the top-level
+   * surface of the window, since gtk does not implement subsurfaces */
   d->display_handle = gdk_wayland_display_get_wl_display (display);
-  d->window_handle = surface;
-  d->width = gtk_widget_get_allocated_width (widget);
-  d->height = gtk_widget_get_allocated_height (widget);
-  d->video_frozen = FALSE;
-}
-
-static void
-video_widget_unrealize_cb (GtkWidget * widget, gpointer data)
-{
-  struct AppData *d = data;
-
-  if (!d->window_handle)
-    return;
-
-  g_print ("unrealize_cb\n");
-  gst_wayland_video_pause_rendering (GST_WAYLAND_VIDEO (d->sink));
-  d->video_frozen = TRUE;
+  d->window_handle = gdk_wayland_window_get_wl_surface (window);
+  gtk_widget_get_allocation (widget, &d->video_widget_allocation);
 }
 
 static gboolean
-app_window_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
-{
-  struct AppData *d = data;
-  GdkEventConfigure *cfg_event = (GdkEventConfigure *) event;
-
-  if (!d->window_handle)
-    return FALSE;
-
-  g_print ("app_configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
-        cfg_event->y, cfg_event->width, cfg_event->height);
-
-  if (!d->video_frozen) {
-    d->video_frozen = TRUE;
-    gst_wayland_video_pause_rendering (GST_WAYLAND_VIDEO (d->sink));
-    wl_subsurface_set_sync (d->subsurface);
-  }
-
-  return FALSE;
-}
-
-static gboolean
-video_widget_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
-{
-  struct AppData *d = data;
-  GdkEventConfigure *cfg_event = (GdkEventConfigure *) event;
-
-  if (!d->window_handle)
-    return FALSE;
-
-  g_print ("configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
-      cfg_event->y, cfg_event->width, cfg_event->height);
-
-  if (cfg_event->x != 0 || cfg_event->y != 0) {
-    wl_subsurface_set_position (d->subsurface, cfg_event->x,
-        cfg_event->y);
-    gst_wayland_video_set_surface_size (GST_WAYLAND_VIDEO (d->sink),
-        cfg_event->width, cfg_event->height);
-  }
-
-  return FALSE;
-}
-
-static gboolean
-video_widget_draw_cb (GtkWidget * widget, gpointer cr, gpointer data)
+video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
 {
   struct AppData *d = data;
 
   if (!d->window_handle)
     return FALSE;
 
-  if (d->video_frozen) {
-    g_print ("draw_cb\n");
-    d->video_frozen = FALSE;
-    gst_wayland_video_resume_rendering (GST_WAYLAND_VIDEO (d->sink));
-    wl_subsurface_set_desync (d->subsurface);
-  }
+  gtk_widget_get_allocation (widget, &d->video_widget_allocation);
+
+  g_print ("draw_cb x %d, y %d, w %d, h %d\n",
+      d->video_widget_allocation.x, d->video_widget_allocation.y,
+      d->video_widget_allocation.width, d->video_widget_allocation.height);
+
+  /* fill background with black */
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_rectangle (cr, 0, 0, d->video_widget_allocation.width,
+      d->video_widget_allocation.height);
+  cairo_fill_preserve (cr);
+
+  gst_video_overlay_set_render_rectangle (GST_VIDEO_OVERLAY (d->sink),
+      d->video_widget_allocation.x, d->video_widget_allocation.y,
+      d->video_widget_allocation.width, d->video_widget_allocation.height);
 
   return FALSE;
 }
@@ -229,16 +130,10 @@ build_window (struct AppData * d)
   g_object_ref (d->app_window);
   g_signal_connect (d->app_window, "destroy",
       G_CALLBACK (gtk_main_quit), NULL);
-  g_signal_connect (d->app_window, "configure-event",
-      G_CALLBACK (app_window_configure_cb), d);
 
   d->video_window = GTK_WIDGET (gtk_builder_get_object (builder, "videoarea"));
   g_signal_connect (d->video_window, "realize",
       G_CALLBACK (video_widget_realize_cb), d);
-  g_signal_connect (d->video_window, "unrealize",
-      G_CALLBACK (video_widget_unrealize_cb), d);
-  g_signal_connect (d->video_window, "configure-event",
-      G_CALLBACK (video_widget_configure_cb), d);
   g_signal_connect (d->video_window, "draw",
       G_CALLBACK (video_widget_draw_cb), d);
 
@@ -255,11 +150,6 @@ main (int argc, char **argv)
   gtk_init (&argc, &argv);
   gst_init (&argc, &argv);
 
-  // try to find the wayland subcompositor object
-  data.subcompositor =
-      wayland_find_subcompositor (gdk_display_get_default ());
-  g_print ("wl_subcompositor: %p\n", data.subcompositor);
-
   // create the window
   build_window (&data);
 
@@ -274,7 +164,9 @@ main (int argc, char **argv)
   // we should have the handle now
   g_assert (data.window_handle != 0);
 
-  data.pipeline = gst_parse_launch ("videotestsrc pattern=18 ! waylandsink name=sink", NULL);
+  data.pipeline = gst_parse_launch (
+      "videotestsrc pattern=18 background-color=0x0000F000 "
+      "! waylandsink name=sink", NULL);
   data.sink = gst_bin_get_by_name (GST_BIN (data.pipeline), "sink");
 
   // set up sync handler for setting the xid once the pipeline is started
