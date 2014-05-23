@@ -212,6 +212,40 @@ video_widget_draw_cb (GtkWidget * widget, gpointer cr, gpointer data)
   return FALSE;
 }
 
+static void
+build_window (struct AppData * d)
+{
+  GtkBuilder *builder;
+  GError *error = NULL;
+
+  builder = gtk_builder_new ();
+  if (!gtk_builder_add_from_file (builder, "window.glade", &error)) {
+    g_error ("Failed to load window.glade: %s", error->message);
+    g_error_free (error);
+    goto exit;
+  }
+
+  d->app_window = GTK_WIDGET (gtk_builder_get_object (builder, "window"));
+  g_object_ref (d->app_window);
+  g_signal_connect (d->app_window, "destroy",
+      G_CALLBACK (gtk_main_quit), NULL);
+  g_signal_connect (d->app_window, "configure-event",
+      G_CALLBACK (app_window_configure_cb), d);
+
+  d->video_window = GTK_WIDGET (gtk_builder_get_object (builder, "videoarea"));
+  g_signal_connect (d->video_window, "realize",
+      G_CALLBACK (video_widget_realize_cb), d);
+  g_signal_connect (d->video_window, "unrealize",
+      G_CALLBACK (video_widget_unrealize_cb), d);
+  g_signal_connect (d->video_window, "configure-event",
+      G_CALLBACK (video_widget_configure_cb), d);
+  g_signal_connect (d->video_window, "draw",
+      G_CALLBACK (video_widget_draw_cb), d);
+
+exit:
+  g_object_unref (builder);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -227,28 +261,7 @@ main (int argc, char **argv)
   g_print ("wl_subcompositor: %p\n", data.subcompositor);
 
   // create the window
-  data.app_window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
-  gtk_window_set_title (GTK_WINDOW (data.app_window), "GStreamer Wayland Demo");
-  g_signal_connect (data.app_window, "destroy",
-      G_CALLBACK (gtk_main_quit), NULL);
-  g_signal_connect (data.app_window, "configure-event",
-      G_CALLBACK (app_window_configure_cb), &data);
-
-  data.video_window = gtk_drawing_area_new ();
-  g_signal_connect (data.video_window, "realize",
-      G_CALLBACK (video_widget_realize_cb), &data);
-  g_signal_connect (data.video_window, "unrealize",
-      G_CALLBACK (video_widget_unrealize_cb), &data);
-  g_signal_connect (data.video_window, "configure-event",
-      G_CALLBACK (video_widget_configure_cb), &data);
-  g_signal_connect (data.video_window, "draw",
-      G_CALLBACK (video_widget_draw_cb), &data);
-//   g_signal_connect (data.video_window, "damage-event",
-//       G_CALLBACK (video_widget_draw_cb), &data);
-
-  gtk_widget_set_double_buffered (data.video_window, FALSE);
-  gtk_widget_set_app_paintable (data.video_window, TRUE);
-  gtk_container_add (GTK_CONTAINER (data.app_window), data.video_window);
+  build_window (&data);
 
   // show the GUI
   gtk_widget_show_all (data.app_window);
