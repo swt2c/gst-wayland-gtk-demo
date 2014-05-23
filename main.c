@@ -26,8 +26,9 @@ struct AppData {
   GtkWidget *app_window;
   GstElement *pipeline;
   GstElement *sink;
-  GstWaylandWindowHandle gst_wl_window_handle;
-  guintptr video_window_handle;
+  struct wl_display *display_handle;
+  struct wl_surface *window_handle;
+  guint width, height;
   struct wl_subcompositor *subcompositor;
   struct wl_subsurface *subsurface;
   gboolean video_frozen;
@@ -71,22 +72,35 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
 {
   struct AppData *d = user_data;
 
- // ignore anything but 'prepare-window-handle' element messages
- if (!gst_is_video_overlay_prepare_window_handle_message (message))
-   return GST_BUS_PASS;
+  if (gst_is_wayland_display_handle_need_context_message (message)) {
+    if (d->display_handle != 0) {
+      GstContext *context =
+          gst_wayland_display_handle_context_new (d->display_handle);
+      gst_element_set_context(d->pipeline, context);
+    } else {
+      g_warning ("Should have obtained display_handle by now!\n");
+    }
 
- if (d->video_window_handle != 0) {
-   GstVideoOverlay *overlay;
+    gst_message_unref (message);
+    return GST_BUS_DROP;
+  } else if (gst_is_video_overlay_prepare_window_handle_message (message)) {
+    if (d->window_handle != 0) {
+      GstVideoOverlay *overlay;
 
-   // GST_MESSAGE_SRC (message) will be the video sink element
-   overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
-   gst_video_overlay_set_window_handle (overlay, d->video_window_handle);
- } else {
-   g_warning ("Should have obtained video_window_handle by now!");
- }
+      // GST_MESSAGE_SRC (message) will be the video sink element
+      overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
+      gst_video_overlay_set_window_handle (overlay, (guintptr) d->window_handle);
+      gst_wayland_video_set_surface_size (GST_WAYLAND_VIDEO (overlay),
+          d->width, d->height);
+    } else {
+      g_warning ("Should have obtained window_handle by now!\n");
+    }
 
- gst_message_unref (message);
- return GST_BUS_DROP;
+    gst_message_unref (message);
+    return GST_BUS_DROP;
+  }
+
+  return GST_BUS_PASS;
 }
 
 static void
@@ -117,11 +131,10 @@ video_widget_realize_cb (GtkWidget * widget, gpointer data)
   wl_subsurface_set_position (d->subsurface, x, y);
   wl_subsurface_set_desync (d->subsurface);
 
-  d->gst_wl_window_handle.display = gdk_wayland_display_get_wl_display (display);
-  d->gst_wl_window_handle.surface = surface;
-  d->gst_wl_window_handle.width = gtk_widget_get_allocated_width (widget);
-  d->gst_wl_window_handle.height = gtk_widget_get_allocated_height (widget);
-  d->video_window_handle = (guintptr) &d->gst_wl_window_handle;
+  d->display_handle = gdk_wayland_display_get_wl_display (display);
+  d->window_handle = surface;
+  d->width = gtk_widget_get_allocated_width (widget);
+  d->height = gtk_widget_get_allocated_height (widget);
   d->video_frozen = FALSE;
 }
 
@@ -130,7 +143,7 @@ video_widget_unrealize_cb (GtkWidget * widget, gpointer data)
 {
   struct AppData *d = data;
 
-  if (!d->video_window_handle)
+  if (!d->window_handle)
     return;
 
   g_print ("unrealize_cb\n");
@@ -144,7 +157,7 @@ app_window_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
   struct AppData *d = data;
   GdkEventConfigure *cfg_event = (GdkEventConfigure *) event;
 
-  if (!d->video_window_handle)
+  if (!d->window_handle)
     return FALSE;
 
   g_print ("app_configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
@@ -165,7 +178,7 @@ video_widget_configure_cb (GtkWidget * widget, GdkEvent * event, gpointer data)
   struct AppData *d = data;
   GdkEventConfigure *cfg_event = (GdkEventConfigure *) event;
 
-  if (!d->video_window_handle)
+  if (!d->window_handle)
     return FALSE;
 
   g_print ("configure_cb x %d, y %d, w %d, h %d\n", cfg_event->x,
@@ -186,7 +199,7 @@ video_widget_draw_cb (GtkWidget * widget, gpointer cr, gpointer data)
 {
   struct AppData *d = data;
 
-  if (!d->video_window_handle)
+  if (!d->window_handle)
     return FALSE;
 
   if (d->video_frozen) {
@@ -246,7 +259,7 @@ main (int argc, char **argv)
   gtk_widget_realize (data.app_window);
 
   // we should have the handle now
-  g_assert (data.video_window_handle != 0);
+  g_assert (data.window_handle != 0);
 
   data.pipeline = gst_parse_launch ("videotestsrc pattern=18 ! waylandsink name=sink", NULL);
   data.sink = gst_bin_get_by_name (GST_BIN (data.pipeline), "sink");
