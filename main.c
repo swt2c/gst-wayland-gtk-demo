@@ -114,9 +114,34 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
 }
 
 static void
+playing_clicked_cb (GtkButton *button, struct AppData * d)
+{
+  gst_element_set_state (d->pipeline, GST_STATE_PLAYING);
+}
+
+static void
+paused_clicked_cb (GtkButton *button, struct AppData * d)
+{
+  gst_element_set_state (d->pipeline, GST_STATE_PAUSED);
+}
+
+static void
+ready_clicked_cb (GtkButton *button, struct AppData * d)
+{
+  gst_element_set_state (d->pipeline, GST_STATE_READY);
+}
+
+static void
+null_clicked_cb (GtkButton *button, struct AppData * d)
+{
+  gst_element_set_state (d->pipeline, GST_STATE_NULL);
+}
+
+static void
 build_window (struct AppData * d)
 {
   GtkBuilder *builder;
+  GtkWidget *button;
   GError *error = NULL;
 
   builder = gtk_builder_new ();
@@ -136,6 +161,18 @@ build_window (struct AppData * d)
       G_CALLBACK (video_widget_realize_cb), d);
   g_signal_connect (d->video_window, "draw",
       G_CALLBACK (video_widget_draw_cb), d);
+
+  button = GTK_WIDGET (gtk_builder_get_object (builder, "button_playing"));
+  g_signal_connect (button, "clicked", G_CALLBACK (playing_clicked_cb), d);
+
+  button = GTK_WIDGET (gtk_builder_get_object (builder, "button_paused"));
+  g_signal_connect (button, "clicked", G_CALLBACK (paused_clicked_cb), d);
+
+  button = GTK_WIDGET (gtk_builder_get_object (builder, "button_ready"));
+  g_signal_connect (button, "clicked", G_CALLBACK (ready_clicked_cb), d);
+
+  button = GTK_WIDGET (gtk_builder_get_object (builder, "button_null"));
+  g_signal_connect (button, "clicked", G_CALLBACK (null_clicked_cb), d);
 
 exit:
   g_object_unref (builder);
