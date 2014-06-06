@@ -26,7 +26,7 @@ struct AppData {
   GtkWidget *video_window;
   GtkWidget *app_window;
   GstElement *pipeline;
-  GstElement *sink;
+  GstVideoOverlay *sink;
   struct wl_display *display_handle;
   struct wl_surface *window_handle;
   GtkAllocation video_widget_allocation;
@@ -41,7 +41,7 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
     if (d->display_handle != 0) {
       GstContext *context =
           gst_wayland_display_handle_context_new (d->display_handle);
-      gst_element_set_context(d->pipeline, context);
+      gst_element_set_context(GST_ELEMENT (GST_MESSAGE_SRC (message)), context);
     } else {
       g_warning ("Should have obtained display_handle by now!\n");
     }
@@ -54,8 +54,10 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
 
       // GST_MESSAGE_SRC (message) will be the video sink element
       overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
+      d->sink = overlay;
+
       gst_video_overlay_set_window_handle (overlay, (guintptr) d->window_handle);
-      gst_video_overlay_set_render_rectangle (GST_VIDEO_OVERLAY (d->sink),
+      gst_video_overlay_set_render_rectangle (overlay,
           d->video_widget_allocation.x, d->video_widget_allocation.y,
           d->video_widget_allocation.width, d->video_widget_allocation.height);
     } else {
@@ -106,9 +108,11 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
       d->video_widget_allocation.height);
   cairo_fill_preserve (cr);
 
-  gst_video_overlay_set_render_rectangle (GST_VIDEO_OVERLAY (d->sink),
-      d->video_widget_allocation.x, d->video_widget_allocation.y,
-      d->video_widget_allocation.width, d->video_widget_allocation.height);
+  if (d->sink) {
+    gst_video_overlay_set_render_rectangle (d->sink,
+        d->video_widget_allocation.x, d->video_widget_allocation.y,
+        d->video_widget_allocation.width, d->video_widget_allocation.height);
+  }
 
   return FALSE;
 }
@@ -204,7 +208,6 @@ main (int argc, char **argv)
   data.pipeline = gst_parse_launch (
       "videotestsrc pattern=18 background-color=0x0000F000 "
       "! waylandsink name=sink", NULL);
-  data.sink = gst_bin_get_by_name (GST_BIN (data.pipeline), "sink");
 
   // set up sync handler for setting the xid once the pipeline is started
   bus = gst_pipeline_get_bus (GST_PIPELINE (data.pipeline));
@@ -217,7 +220,6 @@ main (int argc, char **argv)
   gtk_main ();
   gst_element_set_state (data.pipeline, GST_STATE_NULL);
 
-  gst_object_unref (data.sink);
   gst_object_unref (data.pipeline);
 
   return 0;
