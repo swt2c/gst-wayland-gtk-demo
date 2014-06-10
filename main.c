@@ -205,9 +205,15 @@ main (int argc, char **argv)
   // we should have the handle now
   g_assert (data.window_handle != 0);
 
-  data.pipeline = gst_parse_launch (
-      "videotestsrc pattern=18 background-color=0x0000F000 "
-      "! waylandsink name=sink", NULL);
+  if (argc > 1) {
+    data.pipeline = gst_parse_launch ("playbin video-sink=waylandsink", NULL);
+    g_object_set (data.pipeline, "uri", argv[1], NULL);
+  } else {
+    data.pipeline = gst_parse_launch (
+        "videotestsrc pattern=18 background-color=0x0000F000 "
+        //"v4l2src ! videoconvert "
+        "! waylandsink", NULL);
+  }
 
   // set up sync handler for setting the xid once the pipeline is started
   bus = gst_pipeline_get_bus (GST_PIPELINE (data.pipeline));
