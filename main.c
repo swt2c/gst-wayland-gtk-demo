@@ -30,6 +30,7 @@ struct AppData {
   struct wl_display *display_handle;
   struct wl_surface *window_handle;
   GtkAllocation video_widget_allocation;
+  gboolean geometry_changing;
 };
 
 static GstBusSyncReply
@@ -72,11 +73,24 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
 }
 
 static void
+on_frame_clock_after_paint (GdkFrameClock * clock, gpointer data)
+{
+  struct AppData *d = data;
+
+  if (d->geometry_changing) {
+    g_print ("end geometry change\n");
+    gst_wayland_video_end_geometry_change (GST_WAYLAND_VIDEO (d->sink));
+    d->geometry_changing = FALSE;
+  }
+}
+
+static void
 video_widget_realize_cb (GtkWidget * widget, gpointer data)
 {
   struct AppData *d = data;
   GdkDisplay *display;
   GdkWindow *window;
+  GdkFrameClock *frame_clock;
 
   display = gtk_widget_get_display (widget);
   window = gtk_widget_get_window (widget);
@@ -86,6 +100,10 @@ video_widget_realize_cb (GtkWidget * widget, gpointer data)
   d->display_handle = gdk_wayland_display_get_wl_display (display);
   d->window_handle = gdk_wayland_window_get_wl_surface (window);
   gtk_widget_get_allocation (widget, &d->video_widget_allocation);
+
+  frame_clock = gtk_widget_get_frame_clock (widget);
+  g_signal_connect_data (frame_clock, "after-paint",
+      G_CALLBACK (on_frame_clock_after_paint), data, NULL, G_CONNECT_AFTER);
 }
 
 static gboolean
@@ -108,10 +126,17 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
       d->video_widget_allocation.height);
   cairo_fill_preserve (cr);
 
-  if (d->sink) {
+  if (d->sink && !d->geometry_changing) {
+    gst_wayland_video_begin_geometry_change (GST_WAYLAND_VIDEO (d->sink));
+    d->geometry_changing = TRUE;
+
     gst_video_overlay_set_render_rectangle (d->sink,
         d->video_widget_allocation.x, d->video_widget_allocation.y,
         d->video_widget_allocation.width, d->video_widget_allocation.height);
+
+    //FIXME HACK workaround - weston should redraw the surface at this point, but it doen't
+    //weston_surface_commit: /* XXX: wl_viewport.set without an attach should call configure */
+    gst_video_overlay_expose (d->sink);
   }
 
   return FALSE;
