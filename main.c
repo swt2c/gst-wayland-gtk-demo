@@ -133,10 +133,6 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
     gst_video_overlay_set_render_rectangle (d->sink,
         d->video_widget_allocation.x, d->video_widget_allocation.y,
         d->video_widget_allocation.width, d->video_widget_allocation.height);
-
-    //FIXME HACK workaround - weston should redraw the surface at this point, but it doen't
-    //weston_surface_commit: /* XXX: wl_viewport.set without an attach should call configure */
-    gst_video_overlay_expose (d->sink);
   }
 
   return FALSE;
