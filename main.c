@@ -26,7 +26,8 @@ struct AppData {
   GtkWidget *video_window;
   GtkWidget *app_window;
   GstElement *pipeline;
-  GstVideoOverlay *sink;
+  GstVideoOverlay *overlay;
+  GstWaylandVideo *wlvideo;
   struct wl_display *display_handle;
   struct wl_surface *window_handle;
   GtkAllocation video_widget_allocation;
@@ -48,9 +49,15 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
 
   if (gst_is_wayland_display_handle_need_context_message (message)) {
     if (d->display_handle != 0) {
-      GstContext *context =
-          gst_wayland_display_handle_context_new (d->display_handle);
+      GstContext *context;
+
+      context = gst_wayland_display_handle_context_new (d->display_handle);
       gst_element_set_context(GST_ELEMENT (GST_MESSAGE_SRC (message)), context);
+
+      /* HACK save the pointer to the sink (which implements GstWaylandVideo)
+       * from this point. Unfortunately, d->overlay can also be the playbin
+       * instead of waylandsink */
+      d->wlvideo = GST_WAYLAND_VIDEO (GST_MESSAGE_SRC (message));
     } else {
       g_warning ("Should have obtained display_handle by now!\n");
     }
@@ -59,14 +66,18 @@ bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
     return GST_BUS_DROP;
   } else if (gst_is_video_overlay_prepare_window_handle_message (message)) {
     if (d->window_handle != 0) {
-      GstVideoOverlay *overlay;
+      /* GST_MESSAGE_SRC (message) will be the overlay object that we have to
+       * use. This may be waylandsink, but it may also be playbin. In the latter
+       * case, we must make sure to use playbin instead of waylandsink, because
+       * playbin resets the window handle and render_rectangle after restarting
+       * playback and the actual window size is lost */
+      d->overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
 
-      // GST_MESSAGE_SRC (message) will be the video sink element
-      overlay = GST_VIDEO_OVERLAY (GST_MESSAGE_SRC (message));
-      d->sink = overlay;
+      g_print ("setting window handle and size (%d x %d)\n",
+          d->video_widget_allocation.width, d->video_widget_allocation.height);
 
-      gst_video_overlay_set_window_handle (overlay, (guintptr) d->window_handle);
-      gst_video_overlay_set_render_rectangle (overlay,
+      gst_video_overlay_set_window_handle (d->overlay, (guintptr) d->window_handle);
+      gst_video_overlay_set_render_rectangle (d->overlay,
           d->video_widget_allocation.x, d->video_widget_allocation.y,
           d->video_widget_allocation.width, d->video_widget_allocation.height);
     } else {
@@ -87,7 +98,7 @@ on_frame_clock_after_paint (GdkFrameClock * clock, gpointer data)
 
   if (d->geometry_changing) {
     g_print ("end geometry change\n");
-    gst_wayland_video_end_geometry_change (GST_WAYLAND_VIDEO (d->sink));
+    gst_wayland_video_end_geometry_change (d->wlvideo);
     d->geometry_changing = FALSE;
   }
 }
@@ -134,11 +145,11 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
       d->video_widget_allocation.height);
   cairo_fill_preserve (cr);
 
-  if (d->sink && !d->geometry_changing) {
-    gst_wayland_video_begin_geometry_change (GST_WAYLAND_VIDEO (d->sink));
+  if (d->wlvideo && d->overlay && !d->geometry_changing) {
+    gst_wayland_video_begin_geometry_change (d->wlvideo);
     d->geometry_changing = TRUE;
 
-    gst_video_overlay_set_render_rectangle (d->sink,
+    gst_video_overlay_set_render_rectangle (d->overlay,
         d->video_widget_allocation.x, d->video_widget_allocation.y,
         d->video_widget_allocation.width, d->video_widget_allocation.height);
   }
