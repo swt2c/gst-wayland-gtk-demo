@@ -31,7 +31,15 @@ struct AppData {
   struct wl_surface *window_handle;
   GtkAllocation video_widget_allocation;
   gboolean geometry_changing;
+  gchar *uri;
 };
+
+static void
+on_about_to_finish (GstElement * playbin, struct AppData * d)
+{
+  g_print ("restarting playback of %s\n", d->uri);
+  g_object_set (playbin, "uri", d->uri, NULL);
+}
 
 static GstBusSyncReply
 bus_sync_handler (GstBus * bus, GstMessage * message, gpointer user_data)
@@ -229,6 +237,11 @@ main (int argc, char **argv)
   if (argc > 1) {
     data.pipeline = gst_parse_launch ("playbin video-sink=waylandsink", NULL);
     g_object_set (data.pipeline, "uri", argv[1], NULL);
+
+    // enable looping
+    data.uri = g_strdup (argv[1]);
+    g_signal_connect (data.pipeline, "about-to-finish",
+        G_CALLBACK (on_about_to_finish), &data);
   } else {
     data.pipeline = gst_parse_launch (
         "videotestsrc pattern=18 background-color=0x0000F000 "
@@ -248,6 +261,8 @@ main (int argc, char **argv)
   gst_element_set_state (data.pipeline, GST_STATE_NULL);
 
   gst_object_unref (data.pipeline);
+  if (data.uri)
+    g_free (data.uri);
 
   return 0;
 }
