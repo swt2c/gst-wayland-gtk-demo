@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall `pkg-config --cflags --libs gtk+-3.0 cairo gtk+-wayland-3.0 gstreamer-video-1.0 gstreamer-plugins-bad-1.0 wayland-client` -lgstwayland-1.0
+CFLAGS=-Wall `pkg-config --cflags --libs gtk+-3.0 cairo gtk+-wayland-3.0 gstreamer-wayland-1.0 wayland-client`
 
 debug:clean
 	$(CC) $(CFLAGS) -g -o gst-gtk-demo main.c
