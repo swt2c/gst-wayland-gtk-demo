@@ -232,6 +232,8 @@ main (int argc, char **argv)
   struct AppData data = {0};
   GstBus *bus;
 
+  gdk_set_allowed_backends ("wayland");
+
   gtk_init (&argc, &argv);
   gst_init (&argc, &argv);
 
