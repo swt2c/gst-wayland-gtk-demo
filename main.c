@@ -193,8 +193,8 @@ build_window (struct AppData * d)
   GError *error = NULL;
 
   builder = gtk_builder_new ();
-  if (!gtk_builder_add_from_file (builder, "window.glade", &error)) {
-    g_error ("Failed to load window.glade: %s", error->message);
+  if (!gtk_builder_add_from_file (builder, "window.ui", &error)) {
+    g_error ("Failed to load window.ui: %s", error->message);
     g_error_free (error);
     goto exit;
   }
