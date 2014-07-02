@@ -16,6 +16,9 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+
+#define GST_USE_UNSTABLE_API
+
 #include <gst/video/videooverlay.h>
 #include <gst/wayland/wayland.h>
 #include <gtk/gtk.h>
