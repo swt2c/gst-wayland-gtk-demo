@@ -146,12 +146,6 @@ video_widget_draw_cb (GtkWidget * widget, cairo_t *cr, gpointer data)
       d->video_widget_allocation.x, d->video_widget_allocation.y,
       d->video_widget_allocation.width, d->video_widget_allocation.height);
 
-  /* fill background with black */
-  cairo_set_source_rgb (cr, 0, 0, 0);
-  cairo_rectangle (cr, 0, 0, d->video_widget_allocation.width,
-      d->video_widget_allocation.height);
-  cairo_fill_preserve (cr);
-
   if (d->wlvideo && d->overlay && !d->geometry_changing) {
     gst_wayland_video_begin_geometry_change (d->wlvideo);
     d->geometry_changing = TRUE;
