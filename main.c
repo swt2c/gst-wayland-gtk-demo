@@ -39,6 +39,23 @@ struct AppData {
   int current_uri; /* index for argv */
 };
 
+static gchar *
+find_file (const gchar * name)
+{
+  const gchar * const * system_dirs = g_get_system_data_dirs ();
+  gchar * ret;
+  while (*system_dirs) {
+    ret = g_build_filename (*system_dirs, "gst-wayland-gtk-demo", name, NULL);
+    if (g_file_test (ret, G_FILE_TEST_EXISTS)) {
+      g_print ("Found '%s' at '%s'\n", name, ret);
+      return ret;
+    }
+    g_free (ret);
+    system_dirs++;
+  }
+  return g_strdup (name);
+}
+
 static void
 on_about_to_finish (GstElement * playbin, struct AppData * d)
 {
@@ -187,10 +204,12 @@ build_window (struct AppData * d)
 {
   GtkBuilder *builder;
   GtkWidget *button;
+  gchar *window_ui;
   GError *error = NULL;
 
   builder = gtk_builder_new ();
-  if (!gtk_builder_add_from_file (builder, "window.ui", &error)) {
+  window_ui = find_file ("window.ui");
+  if (!gtk_builder_add_from_file (builder, window_ui, &error)) {
     g_error ("Failed to load window.ui: %s", error->message);
     g_error_free (error);
     goto exit;
@@ -220,6 +239,7 @@ build_window (struct AppData * d)
   g_signal_connect (button, "clicked", G_CALLBACK (null_clicked_cb), d);
 
 exit:
+  g_free (window_ui);
   g_object_unref (builder);
 }
 
